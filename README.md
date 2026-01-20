@@ -1,1 +1,1 @@
-# sentinel-node
+# SentinelNode: Secure Centralized Logging & Audit
