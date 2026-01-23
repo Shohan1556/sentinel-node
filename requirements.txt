@@ -1,0 +1,6 @@
+pandas
+watchdog
+pytest
+pytest-cov
+python-dotenv
+pytest==8.0.0
