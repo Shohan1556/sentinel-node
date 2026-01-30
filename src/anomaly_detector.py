@@ -6,7 +6,6 @@ class BruteForceDetector:
         self.threshold = threshold
         self.window = timedelta(minutes=window_minutes)
         self.ip_attempts = defaultdict(deque)  # {ip: [timestamps]}
-        print('BruteForceDetector initialized')
 
     def report_attempt(self, ip, timestamp):
         # Remove old attempts outside time window
