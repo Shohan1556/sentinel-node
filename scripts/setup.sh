@@ -1,6 +1,4 @@
 #!/bin/bash
-echo "Setting up LogSentinel environment..."
-python3 -m venv venv
-source venv/bin/activate
-pip install requirements.txt
-echo "Setup complete......."
+# Install dependencies
+pip install -r requirements.txt
+echo "Environment setup complete."
