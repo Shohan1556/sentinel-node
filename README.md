@@ -289,7 +289,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 👥 Authors
 
-- **Durjoy Acharya** - Initial work - [Shohan1556](https://github.com/Shohan1556)
+- ** Shohan & Tanvir** - Initial work - [Shohan1556](https://github.com/Shohan1556)
 
 ## 🙏 Acknowledgments
 
