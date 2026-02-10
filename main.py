@@ -1,188 +1,201 @@
 """
-SentinelNode: Secure Centralized Logging & Audit System
-Main entry point for the SSH brute-force detection system.
+SentinelNode: Production-Grade Security Detection System
+Main entry point for processing CICIDS2017 datasets and detecting attacks.
 """
 
-from src.log_parser import LogParser
-from src.anomaly_detector import BruteForceDetector
-from src.alert_manager import AlertManager
-from src.config import CONFIG, DB_CONFIG, is_db_configured
-from src.db_connector import DatabaseConnector
-from src.data_loader import CICIDS2017Loader
-from src.ssh_detector import SSHBruteForceDetector
-import logging
 import os
-import argparse
 import sys
+import argparse
+import logging
+from datetime import datetime
+
+# Add src to path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from src.db_connector import create_db_connector_from_env
+from src.alert_manager import AlertManager
+from src.data_processor import CICIDS2017Processor
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('sentinel_node.log')
+    ]
 )
 logger = logging.getLogger(__name__)
 
-def setup_db_connection():
-    """Initialize and return database connector if configured."""
-    if is_db_configured():
-        try:
-            logger.info("Database configuration detected. Initializing connection...")
-            db_connector = DatabaseConnector(
-                host=DB_CONFIG["host"],
-                port=DB_CONFIG["port"],
-                database=DB_CONFIG["database"],
-                user=DB_CONFIG["user"],
-                password=DB_CONFIG["password"],
-                ssl_mode=DB_CONFIG["ssl_mode"]
-            )
-            
-            if db_connector.test_connection():
-                logger.info("✓ Database connection successful")
-                return db_connector
-            else:
-                logger.warning("Database connection test failed. Continuing without database.")
-                return None
-        except Exception as e:
-            logger.error(f"Failed to initialize database: {e}")
-            logger.warning("Continuing without database persistence.")
-            return None
-    return None
-
-def process_log_file(file_path, alert_manager):
-    """Process standard auth.log file."""
-    logger.info(f"Processing log file (Legacy Mode): {file_path}")
-    
-    parser = LogParser(file_path)
-    detector = BruteForceDetector(
-        threshold=CONFIG["threshold"],
-        window_minutes=2
-    )
-    
-    alerts_generated = 0
-    try:
-        with open(file_path, "r") as f:
-            for line in f:
-                event = parser.parse_auth_log_line(line)
-                if event:
-                    is_attack = detector.report_attempt(
-                        event["ip"], event["timestamp"]
-                    )
-                    if is_attack:
-                        alert_message = (
-                            f"[ALERT] SSH-BruteForce from {event['ip']} "
-                            f"at {event['timestamp']}"
-                        )
-                        
-                        alert_manager.send_alert(
-                            message=alert_message,
-                            timestamp=event["timestamp"],
-                            source_ip=event["ip"],
-                            event_type="SSH-BruteForce",
-                            dataset_source="AuthLog"
-                        )
-                        alerts_generated += 1
-                        
-    except Exception as e:
-        logger.error(f"Error processing log file: {e}")
-        print(f"\n❌ Error: {e}")
-        
-    return alerts_generated
-
-def process_cicids2017_csv(file_path, alert_manager):
-    """Process CICIDS2017 CSV file."""
-    logger.info(f"Processing CICIDS2017 CSV: {file_path}")
-    
-    loader = CICIDS2017Loader(file_path)
-    # Using same parameters as Khan & Rahman (2023)
-    detector = SSHBruteForceDetector(threshold=5, window_minutes=2)
-    
-    alerts_generated = 0
-    
-    try:
-        # Process in chunks
-        for chunk_df in loader.load_and_filter(target_label="SSH-BruteForce"):
-            attacks = detector.detect(chunk_df)
-            
-            for attack in attacks:
-                detection_time = attack['detection_time']
-                source_ip = attack['source_ip']
-                
-                alert_message = (
-                    f"[ALERT] SSH-BruteForce from {source_ip} "
-                    f"at {detection_time}"
-                )
-                
-                alert_manager.send_alert(
-                    message=alert_message,
-                    timestamp=detection_time,
-                    source_ip=source_ip,
-                    event_type="SSH-BruteForce",
-                    dataset_source="CICIDS2017"
-                )
-                alerts_generated += 1
-                
-        if alerts_generated == 0:
-            logger.warning("No SSH-BruteForce attacks detected. This might be due to using a benign dataset file.")
-            
-    except Exception as e:
-        logger.error(f"Error processing CSV: {e}")
-        print(f"\n❌ Error: {e}")
-        
-    return alerts_generated
 
 def main():
     """Main entry point."""
-    parser = argparse.ArgumentParser(description="SentinelNode: SSH Brute-Force Detection System")
-    parser.add_argument("--mode", choices=["csv", "log"], default="log", help="Operation mode: 'csv' for CICIDS2017, 'log' for auth.log")
-    parser.add_argument("--input", help="Input file path")
+    parser = argparse.ArgumentParser(
+        description="SentinelNode: Production-Grade Security Detection System"
+    )
+    parser.add_argument(
+        '--mode',
+        choices=['parquet', 'single'],
+        default='parquet',
+        help='Operation mode: parquet=process all datasets, single=process one file'
+    )
+    parser.add_argument(
+        '--input',
+        help='Input file path (for single mode)'
+    )
+    parser.add_argument(
+        '--data-dir',
+        default='data/raw/parquet',
+        help='Directory containing parquet files (for parquet mode)'
+    )
+    parser.add_argument(
+        '--process-all',
+        action='store_true',
+        help='Process all 8 CICIDS2017 datasets'
+    )
     
     args = parser.parse_args()
     
-    print("=" * 60)
-    print("SentinelNode: Secure Centralized Logging & Audit")
-    print("=" * 60)
-    logger.info(f"Sentinel Node starting in {args.mode.upper()} mode...")
+    print("=" * 70)
+    print("SentinelNode: Production-Grade Security Detection System")
+    print("=" * 70)
+    print(f"Mode: {args.mode.upper()}")
+    print(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("=" * 70)
     
-    # default paths
-    if not args.input:
-        if args.mode == "csv":
-            args.input = "data/raw/Benign-Monday-WorkingHours.pcap_ISCX.csv"
+    logger.info("SentinelNode starting...")
+    
+    # Initialize database connection
+    db_connector = None
+    try:
+        db_connector = create_db_connector_from_env()
+        if db_connector:
+            logger.info("✓ Database connection established")
         else:
-            args.input = CONFIG["log_path"]
-            
-    if not os.path.exists(args.input):
-        logger.error(f"Input file not found: {args.input}")
-        print(f"\n❌ Error: Input file not found at {args.input}")
-        return
-
-    # Initialize components
-    db_connector = setup_db_connection()
+            logger.warning("⚠ Database not configured, continuing without persistence")
+    except Exception as e:
+        logger.error(f"Database initialization failed: {e}")
+        logger.warning("Continuing without database persistence")
+    
+    # Initialize alert manager
     alert_manager = AlertManager(
-        csv_output_path=CONFIG["alert_output"],
+        csv_output_path='data/processed/alerts.csv',
         db_connector=db_connector
     )
     
-    alerts_count = 0
-    
     try:
-        if args.mode == "csv":
-            alerts_count = process_cicids2017_csv(args.input, alert_manager)
-        else:
-            alerts_count = process_log_file(args.input, alert_manager)
+        if args.mode == 'parquet' or args.process_all:
+            # Process all CICIDS2017 datasets
+            data_dir = args.data_dir
             
-        # Summary
-        print("\n" + "=" * 60)
-        print(f"Analysis Complete: {alerts_count} brute-force attack(s) detected")
-        print("=" * 60)
-        
-        if alerts_count > 0:
-            print(f"\n✓ Alerts saved to: {CONFIG['alert_output']}")
+            if not os.path.exists(data_dir):
+                logger.error(f"Data directory not found: {data_dir}")
+                print(f"\n❌ Error: Data directory not found at {data_dir}")
+                print("Please ensure CICIDS2017 parquet files are in the correct location.")
+                return
+            
+            # Initialize processor
+            processor = CICIDS2017Processor(
+                data_dir=data_dir,
+                db_connector=db_connector,
+                alert_manager=alert_manager,
+                chunk_size=10000
+            )
+            
+            # Process all datasets
+            stats = processor.process_all()
+            
+            # Print final summary
+            print("\n" + "=" * 70)
+            print("FINAL SUMMARY")
+            print("=" * 70)
+            print(f"Total Flows Processed: {stats['total_flows_processed']:,}")
+            print(f"Total Attacks Detected: {stats['total_attacks_detected']:,}")
+            print(f"Total Processing Time: {stats.get('total_processing_time', 0):.2f}s")
+            
+            if stats.get('attacks_by_type'):
+                print("\n📊 Attacks by Type:")
+                for event_type, count in sorted(stats['attacks_by_type'].items(), 
+                                               key=lambda x: x[1], reverse=True):
+                    print(f"  • {event_type}: {count:,}")
+            
+            print("\n✓ Alerts saved to: data/processed/alerts.csv")
             if db_connector:
-                print(f"✓ Alerts stored in database")
-                
+                print("✓ Alerts stored in database")
+            
+            print("\n💡 Tip: Run 'python dashboard/app.py' to view the dashboard")
+            print("=" * 70)
+            
+        elif args.mode == 'single':
+            if not args.input:
+                logger.error("--input required for single mode")
+                print("\n❌ Error: --input required for single mode")
+                return
+            
+            if not os.path.exists(args.input):
+                logger.error(f"Input file not found: {args.input}")
+                print(f"\n❌ Error: Input file not found at {args.input}")
+                return
+            
+            # Process single file
+            logger.info(f"Processing single file: {args.input}")
+            
+            from src.detectors.ssh_detector import SSHBruteForceDetector
+            from src.detectors.ddos_detector import DDoSDetector
+            import pandas as pd
+            
+            df = pd.read_parquet(args.input, engine='pyarrow')
+            logger.info(f"Loaded {len(df):,} flows from {args.input}")
+            
+            # Determine detector based on file name
+            if 'bruteforce' in args.input.lower() or 'ssh' in args.input.lower():
+                detector = SSHBruteForceDetector(db_connector=db_connector)
+                logger.info("Using SSH Brute-Force Detector")
+            elif 'ddos' in args.input.lower() or 'dos' in args.input.lower():
+                detector = DDoSDetector(db_connector=db_connector)
+                logger.info("Using DDoS Detector")
+            else:
+                logger.warning("Could not determine detector type, using SSH detector")
+                detector = SSHBruteForceDetector(db_connector=db_connector)
+            
+            # Add synthetic fields
+            from src.data_processor import CICIDS2017Processor
+            processor = CICIDS2017Processor(
+                data_dir=os.path.dirname(args.input),
+                db_connector=db_connector,
+                alert_manager=alert_manager
+            )
+            df = processor._add_synthetic_fields(df)
+            
+            # Detect attacks
+            detections = detector.detect(df)
+            
+            # Handle detections
+            for detection in detections:
+                alert_manager.send_alert(
+                    src_ip=detection['src_ip'],
+                    event_type=detection.get('event_type', 'unknown'),
+                    severity=detection['severity'],
+                    confidence_score=detection['confidence_score'],
+                    pattern_type=detection['pattern_type'],
+                    detection_time=detection['detection_time'],
+                    raw_metrics=detection.get('raw_metrics')
+                )
+            
+            print(f"\n✓ Detected {len(detections)} attacks")
+            print(f"✓ Alerts saved to: data/processed/alerts.csv")
+            
+    except KeyboardInterrupt:
+        logger.info("Processing interrupted by user")
+        print("\n\n⚠ Processing interrupted by user")
+    except Exception as e:
+        logger.error(f"Error during processing: {e}", exc_info=True)
+        print(f"\n❌ Error: {e}")
     finally:
         if db_connector:
             db_connector.close()
+            logger.info("Database connection closed")
+
 
 if __name__ == "__main__":
     main()
